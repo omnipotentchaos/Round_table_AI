@@ -138,6 +138,7 @@ function sessionPatch(patch: Partial<InterviewSessionRecord>): Record<string, un
   const fields: Array<[keyof InterviewSessionRecord, string]> = [
     ['status', 'status'],
     ['connectionHealth', 'connection_health'],
+    ['agentUid', 'agent_uid'],
     ['agoraAgentId', 'agora_agent_id'],
     ['llmTokenHash', 'llm_token_hash'],
     ['activeRole', 'active_role'],

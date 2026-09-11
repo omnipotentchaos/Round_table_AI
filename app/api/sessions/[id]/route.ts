@@ -33,7 +33,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     }
 
     await requireCandidateSession(request, id);
-    const assessment = await interviewStore.getAssessment(id);
+    const [assessment, events] = await Promise.all([
+      interviewStore.getAssessment(id),
+      interviewStore.listEvents(id),
+    ]);
     const version = await interviewStore.getInterviewVersion(session.interviewVersionId);
     const demo = version?.definition.demoMode ? {
       roles: demoRoles(version.definition.panelRoles),
@@ -58,6 +61,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       feedback: assessment?.releasedAt ? assessment.assessment.candidateSummary : null,
       feedbackReleasedAt: assessment?.releasedAt ?? null,
       humanReviewRequired: true,
+      // These captions are server-confirmed STT input sent to the custom LLM.
+      // They are returned only to the candidate's signed session, never via the
+      // company Realtime feed.
+      liveCaptions: events
+        .filter((event) => event.type === 'candidate.live_caption' && typeof event.payload.text === 'string')
+        .slice(-30)
+        .map((event) => ({ id: event.id, text: String(event.payload.text), createdAt: event.createdAt })),
     });
   } catch (error) {
     return apiError(error, 'Failed to load interview session');

@@ -6,7 +6,7 @@ import { apiError } from '@/lib/http';
 import { interviewStore } from '@/lib/interview-store';
 import { candidateCookieName, createCandidateGrant, createOpaqueToken, hashToken } from '@/lib/security';
 import type { CompetencyState, InterviewSessionRecord } from '@/types/interview';
-import { DEFAULT_AGENT_UID } from '@/lib/agora';
+import { agentUidForRole } from '@/lib/agora';
 import { DEMO_OPENING_QUESTION, demoRoles } from '@/lib/interview-demo';
 
 const StartSchema = z.object({
@@ -63,7 +63,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       connectionHealth: 'unknown',
       channelName,
       rtcUid,
-      agentUid: String(DEFAULT_AGENT_UID),
+      agentUid: agentUidForRole(version.definition.demoMode ? demoRoles(version.definition.panelRoles)[0] : version.definition.panelRoles[0]),
       agoraAgentId: null,
       llmTokenHash: hashToken(llmToken),
       activeRole: version.definition.demoMode ? demoRoles(version.definition.panelRoles)[0] : version.definition.panelRoles[0],
@@ -98,7 +98,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       token: tokenData.token,
       rtcUid,
       uid: rtcUid,
-      agentUid: String(DEFAULT_AGENT_UID),
+      agentUid: agentUidForRole(version.definition.demoMode ? demoRoles(version.definition.panelRoles)[0] : version.definition.panelRoles[0]),
       agentId: null,
       expiresAt: tokenData.expiresAt,
       interviewEndsAt,

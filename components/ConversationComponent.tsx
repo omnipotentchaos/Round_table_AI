@@ -24,7 +24,7 @@ import {
 } from 'agora-agent-client-toolkit';
 import { AgentVisualizer } from './AgentVisualizer';
 import { MicButtonWithVisualizer } from './MicButtonWithVisualizer';
-import { DEFAULT_AGENT_UID } from '@/lib/agora';
+import { AGENT_UIDS } from '@/lib/agora';
 import {
   getCurrentInProgressMessage,
   getMessageList,
@@ -50,6 +50,8 @@ import { DEMO_CLOSING, normalizeSpokenText } from '@/lib/interview-demo';
 
 // Cap the displayed issues list to avoid overwhelming the UI during a cascade of errors.
 const MAX_CONNECTION_ISSUES = 6;
+
+type ServerCaption = { id: string; text: string; createdAt: string };
 
 type AgoraRtcWithParameters = typeof AgoraRTC & {
   setParameter?: (key: string, value: unknown) => void;
@@ -101,7 +103,7 @@ export default function ConversationComponent({
   compactDemo = false,
   companionDemo = false,
 }: ConversationComponentProps) {
-  const agentUID = String(DEFAULT_AGENT_UID);
+  const agentUIDs = AGENT_UIDS;
 
   const client = useRTCClient();
   const remoteUsers = useRemoteUsers();
@@ -118,6 +120,10 @@ export default function ConversationComponent({
   const [demoProgress, setDemoProgress] = useState<{ roles: string[]; answeredRoles: string[]; closing: boolean } | null>(null);
   const [serverDeadline, setServerDeadline] = useState<string | null>(null);
   const [pendingDemoQuestion, setPendingDemoQuestion] = useState<{ id: string; text: string } | null>(null);
+  const [serverCaptions, setServerCaptions] = useState<ServerCaption[]>([]);
+  const [serverCaptionProcessing, setServerCaptionProcessing] = useState(false);
+  const latestServerCaptionIdRef = useRef<string | null>(null);
+  const serverCaptionTimerRef = useRef<number | null>(null);
   const deliveredQuestionsRef = useRef(new Set<string>());
   const finishedAgentTurnsRef = useRef(new Set<number>());
 
@@ -145,12 +151,38 @@ export default function ConversationComponent({
           setPendingDemoQuestion(data.session.demo?.pendingQuestion ?? null);
           setServerDeadline(data.session.interviewEndsAt ?? null);
         }
+        if (Array.isArray(data?.liveCaptions)) {
+          const captions = data.liveCaptions.filter((caption: unknown): caption is ServerCaption => (
+            !!caption
+            && typeof caption === 'object'
+            && typeof (caption as ServerCaption).id === 'string'
+            && typeof (caption as ServerCaption).text === 'string'
+            && typeof (caption as ServerCaption).createdAt === 'string'
+          ));
+          setServerCaptions(captions);
+          const latest = captions.at(-1);
+          if (latest && latest.id !== latestServerCaptionIdRef.current) {
+            latestServerCaptionIdRef.current = latest.id;
+            if (serverCaptionTimerRef.current !== null) window.clearTimeout(serverCaptionTimerRef.current);
+            setServerCaptionProcessing(true);
+            serverCaptionTimerRef.current = window.setTimeout(() => {
+              setServerCaptionProcessing(false);
+              serverCaptionTimerRef.current = null;
+            }, 10_000);
+          }
+        }
       })
       .catch(() => {});
     refresh();
-    const interval = window.setInterval(refresh, 2_000);
+    // Keep workspace captions and role-state feedback responsive without
+    // depending exclusively on RTM during a sequential role handoff.
+    const interval = window.setInterval(refresh, 1_000);
     return () => window.clearInterval(interval);
   }, [agoraData.sessionId]);
+
+  useEffect(() => () => {
+    if (serverCaptionTimerRef.current !== null) window.clearTimeout(serverCaptionTimerRef.current);
+  }, []);
 
   // Tracks granular RTC connection state for the status dot.
   // Agora states: DISCONNECTED | CONNECTING | CONNECTED | DISCONNECTING | RECONNECTING
@@ -428,14 +460,34 @@ export default function ConversationComponent({
   // messageList stays empty and the first interrupted turn is never shown.
   const messageList = useMemo(() => getMessageList(transcript), [transcript]);
 
+  // Agora's browser transcript is still the primary source. The server caption
+  // is an STT-confirmed fallback for the short period around a role-agent swap.
+  const displayedMessageList = useMemo(() => {
+    const toolkitCandidateTexts = messageList
+      .filter((message) => !agentUIDs.includes(String(message.uid)))
+      .map((message) => normalizeSpokenText(String(message.text ?? '')));
+    const fallback = serverCaptions
+      .filter((caption) => {
+        const normalized = normalizeSpokenText(caption.text);
+        return normalized && !toolkitCandidateTexts.some((text) => text.includes(normalized) || normalized.includes(text));
+      })
+      .map((caption) => ({
+        turn_id: `server-caption-${caption.id}`,
+        uid: Number(client.uid) || 0,
+        text: caption.text,
+        createdAt: Date.parse(caption.createdAt),
+      }));
+    return [...messageList, ...fallback].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  }, [agentUIDs, client.uid, messageList, serverCaptions]);
+
   useEffect(() => {
     if (['listening', 'idle', 'silent'].includes(agentState ?? '')) {
       for (const turn of transcript) {
-        if (String(turn.uid) === agentUID && turn.status === TurnStatus.END) finishedAgentTurnsRef.current.add(turn.turn_id);
+        if (agentUIDs.includes(String(turn.uid)) && turn.status === TurnStatus.END) finishedAgentTurnsRef.current.add(turn.turn_id);
       }
     }
     if (!agoraData.sessionId || !pendingDemoQuestion || deliveredQuestionsRef.current.has(pendingDemoQuestion.id)) return;
-    const completed = transcript.find((turn) => String(turn.uid) === agentUID
+    const completed = transcript.find((turn) => agentUIDs.includes(String(turn.uid))
       && turn.status === TurnStatus.END
       && finishedAgentTurnsRef.current.has(turn.turn_id)
       && normalizeSpokenText(String(turn.text)).includes(normalizeSpokenText(pendingDemoQuestion.text)));
@@ -457,7 +509,7 @@ export default function ConversationComponent({
     void acknowledge();
     const timer = window.setInterval(() => void acknowledge(), 1000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [agoraData.sessionId, pendingDemoQuestion, transcript, agentState, agentUID]);
+  }, [agoraData.sessionId, pendingDemoQuestion, transcript, agentState, agentUIDs]);
 
   const lastLoggedTurnRef = useRef<number | null>(null);
 
@@ -487,22 +539,22 @@ export default function ConversationComponent({
   usePublish([localMicrophoneTrack]);
 
   useClientEvent(client, 'user-joined', (user) => {
-    if (user.uid.toString() === agentUID) {
+    if (agentUIDs.includes(user.uid.toString())) {
       setIsAgentConnected(true);
     }
   });
 
   useClientEvent(client, 'user-left', (user) => {
-    if (user.uid.toString() === agentUID) setIsAgentConnected(false);
+    if (agentUIDs.includes(user.uid.toString())) setIsAgentConnected(false);
   });
 
   // Sync isAgentConnected with remoteUsers (covers cases where user-joined/left are missed)
   useEffect(() => {
     const isAgentInRemoteUsers = remoteUsers.some(
-      (user) => user.uid.toString() === agentUID,
+      (user) => agentUIDs.includes(user.uid.toString()),
     );
     setIsAgentConnected(isAgentInRemoteUsers);
-  }, [remoteUsers, agentUID]);
+  }, [remoteUsers, agentUIDs]);
 
   // Ensure remote audio tracks (e.g. AI agent) are played
   useEffect(() => {
@@ -546,11 +598,12 @@ export default function ConversationComponent({
       : 'warning';
   }, [connectionState, connectionIssues]);
 
-  const visualizerState = useMemo(
-    () =>
-      mapAgentVisualizerState(agentState, isAgentConnected, connectionState),
-    [agentState, isAgentConnected, connectionState],
-  );
+  const visualizerState = useMemo(() => {
+    const serverIsProcessing = serverCaptionProcessing
+      && ['idle', 'silent', null].includes(agentState);
+    return mapAgentVisualizerState(serverIsProcessing ? AgentState.THINKING : agentState, isAgentConnected, connectionState);
+  }, [agentState, serverCaptionProcessing, isAgentConnected, connectionState]);
+  const workspaceActive = activeModality === 'code' || activeModality === 'canvas';
 
   /**
    * Mute/unmute via track.setEnabled() only — usePublish owns publish state.
@@ -612,24 +665,25 @@ export default function ConversationComponent({
 
   useEffect(() => {
     if (!demoProgress?.closing || autoEndTriggeredRef.current) return;
-    const closingDelivered = transcript.some((turn) => String(turn.uid) === agentUID
+    const closingDelivered = transcript.some((turn) => agentUIDs.includes(String(turn.uid))
       && turn.status === TurnStatus.END
       && String(turn.text).replace(/[^a-z]/gi, '').toLowerCase().includes(DEMO_CLOSING.replace(/[^a-z]/gi, '').toLowerCase()));
-    if (!closingDelivered || !['listening', 'idle', 'silent'].includes(agentState ?? '')) return;
-    // Wait for both the closing transcript and the end of agent speech.
-    // An interrupted closing stays open and can be repeated naturally.
+    if (!closingDelivered) return;
+    // A role handoff creates a new Agora agent, whose state event can arrive
+    // after the closing transcript. The completed closing turn is the durable
+    // completion signal; leave a short buffer for audio playback, then finish.
     const timer = window.setTimeout(() => {
       if (autoEndTriggeredRef.current) return;
       autoEndTriggeredRef.current = true;
       void handleEndConversation();
-    }, 1_000);
+    }, 1_500);
     return () => window.clearTimeout(timer);
-  }, [agentState, agentUID, demoProgress?.closing, handleEndConversation, transcript]);
+  }, [agentUIDs, demoProgress?.closing, handleEndConversation, transcript]);
 
   useEffect(() => {
     if (!compactDemo || autoEndTriggeredRef.current) return;
-    const endedAgentTurns = transcript.filter((turn) => String(turn.uid) === agentUID && turn.status === TurnStatus.END);
-    const endedCandidateTurns = transcript.filter((turn) => String(turn.uid) !== agentUID && turn.status === TurnStatus.END);
+    const endedAgentTurns = transcript.filter((turn) => agentUIDs.includes(String(turn.uid)) && turn.status === TurnStatus.END);
+    const endedCandidateTurns = transcript.filter((turn) => !agentUIDs.includes(String(turn.uid)) && turn.status === TurnStatus.END);
     const complete = companionDemo
       ? endedAgentTurns.length >= 1
       : endedAgentTurns.length >= 2 && endedCandidateTurns.length >= 1;
@@ -640,11 +694,11 @@ export default function ConversationComponent({
       void handleEndConversation();
     }, companionDemo ? 1_600 : 2_400);
     return () => window.clearTimeout(timer);
-  }, [agentState, agentUID, compactDemo, companionDemo, handleEndConversation, transcript]);
+  }, [agentState, agentUIDs, compactDemo, companionDemo, handleEndConversation, transcript]);
 
   if (compactDemo) {
     if (companionDemo) {
-      const latestAgentMessage = [...messageList].reverse().find((message) => String(message.uid) === agentUID);
+      const latestAgentMessage = [...messageList].reverse().find((message) => agentUIDs.includes(String(message.uid)));
       return (
         <div className="flex min-h-[4.5rem] w-full items-center justify-center gap-3 bg-transparent text-center text-xs leading-5 text-[#898989]" aria-live="polite">
           <span className={`h-2 w-2 shrink-0 rounded-full ${isAgentConnected ? 'bg-[#3ecf8e]' : 'bg-[#555]'}`} />
@@ -665,7 +719,7 @@ export default function ConversationComponent({
           {recentMessages.length === 0 ? (
             <p className="text-center text-sm text-[#777]">Connecting to the AI interviewer...</p>
           ) : recentMessages.map((message) => {
-            const candidate = String(message.uid) !== agentUID;
+            const candidate = !agentUIDs.includes(String(message.uid));
             return (
               <div key={message.turn_id} className="text-sm leading-5">
                 <span className={candidate ? 'font-semibold text-[#888]' : 'font-semibold text-[#3ecf8e]'}>
@@ -695,6 +749,7 @@ export default function ConversationComponent({
                 aria-label={isEnabled ? 'Mute microphone' : 'Unmute microphone'}
                 enabledColor="#24b47e"
                 disabledColor="hsl(var(--destructive))"
+                showWaveform={true}
               />
             </div>
             <button type="button" onClick={handleEndConversation} className="rounded-md border border-[#353535] bg-[#1d1d1d] px-3 py-2 text-xs font-medium text-[#d7d7d7] hover:bg-[#242424]">
@@ -732,19 +787,20 @@ export default function ConversationComponent({
       pipelineMetrics={<QuickstartPipelineMetrics metrics={agentMetrics} />}
       transcriptPanel={
         <QuickstartTranscriptPanel
-          messageList={messageList}
+          messageList={displayedMessageList}
           currentInProgressMessage={currentInProgressMessage}
-          agentUID={agentUID}
+          agentUIDs={agentUIDs}
         />
       }
       visualizer={
         <div
-          className="relative flex h-full min-h-[20rem] w-full max-w-4xl flex-col items-center justify-center gap-4"
+          className={`relative flex h-full w-full max-w-4xl flex-col items-center justify-center overflow-hidden ${workspaceActive ? 'min-h-[10rem] gap-1.5 py-1' : 'min-h-[20rem] gap-4'}`}
           role="region"
           aria-label="AI agent status visualization"
         >
-          <PanelAvatar role={activeRole} state={agentState} />
-          <AgentVisualizer state={visualizerState} size="lg" />
+          {!workspaceActive && <PanelAvatar role={activeRole} state={agentState} />}
+          {workspaceActive && <span className="font-mono text-[10px] font-medium uppercase tracking-[.14em] text-[#8b8b8b]">{activeRole.replaceAll('_', ' ')} · live status</span>}
+          <AgentVisualizer state={visualizerState} size={workspaceActive ? 'sm' : 'lg'} className={workspaceActive ? 'gap-1.5 scale-90 origin-center' : ''} />
           {remoteUsers.map((user) => (
             <div key={user.uid} className="hidden">
               {typeof RemoteUser === 'function' ? <RemoteUser user={user} playAudio={true} /> : null}

@@ -8,9 +8,9 @@ import {
   CustomLLM,
   DeepgramSTT,
   ExpiresIn,
-  MiniMaxTTS,
+  GradiumTTS,
 } from 'agora-agents';
-import { DEFAULT_AGENT_UID } from '@/lib/agora';
+import { agentUidForRole } from '@/lib/agora';
 import type { PanelRole } from '@/types/interview';
 import { DEMO_OPENING_QUESTION } from '@/lib/interview-demo';
 
@@ -20,6 +20,23 @@ function requireAgoraEnv(name: 'NEXT_PUBLIC_AGORA_APP_ID' | 'NEXT_AGORA_APP_CERT
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
+}
+
+function requireGradiumEnv(name: 'GRADIUM_API_KEY' | `GRADIUM_${string}_VOICE_ID`): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
+}
+
+function gradiumVoiceForRole(role: PanelRole): string {
+  const variableByRole: Record<PanelRole, `GRADIUM_${string}_VOICE_ID`> = {
+    hiring_manager: 'GRADIUM_HIRING_MANAGER_VOICE_ID',
+    technical: 'GRADIUM_TECHNICAL_VOICE_ID',
+    product: 'GRADIUM_PRODUCT_VOICE_ID',
+    customer: 'GRADIUM_CUSTOMER_VOICE_ID',
+    behavioral: 'GRADIUM_BEHAVIORAL_VOICE_ID',
+  };
+  return requireGradiumEnv(variableByRole[role]);
 }
 
 export function createAgoraChannel(sessionId: string): string {
@@ -83,6 +100,9 @@ export async function startInterviewAgent({
   panelRoles = ['technical'],
   durationMinutes = 30,
   demoMode = false,
+  activeRole = 'technical',
+  openingText,
+  agentUid = agentUidForRole(activeRole),
 }: {
   sessionId: string;
   channel: string;
@@ -93,6 +113,9 @@ export async function startInterviewAgent({
   panelRoles?: PanelRole[];
   durationMinutes?: number;
   demoMode?: boolean;
+  activeRole?: PanelRole;
+  openingText?: string;
+  agentUid?: string;
 }): Promise<string> {
   const client = new AgoraClient({
     area: resolveAgoraArea(),
@@ -111,10 +134,11 @@ export async function startInterviewAgent({
   const paceGuidance = durationMinutes <= 2
     ? 'Please keep each answer to about ten seconds so every panel member can speak.'
     : 'Take the time you need to answer clearly.';
-  const greeting = demoMode
+  const defaultGreeting = demoMode
     ? `Hi! This is an AI interview for ${roleTitle} at ${companyName}, with ${formattedRoles}. One project, five perspectives. Take your time with each answer. A human reviews the summary. ${DEMO_OPENING_QUESTION}`
     : `Hi. This is a technical interview for the role of ${roleTitle} at ${companyName}. You are speaking with an AI interview panel: ${formattedRoles}. We will start with a brief introduction and background, then each interviewer will ask one focused question. This ${durationMinutes}-minute interview is reviewed by a human. ${paceGuidance} Please introduce yourself and share the experience most relevant to this role.`;
-  const instructions = `You are the voice executor for RoundTable's AI interview panel. The application-controlled custom LLM selects exactly one panel role and one question per turn. Speak its text faithfully, warmly, and concisely. Never claim to be human. Never make a hire or reject decision. Allow the candidate to interrupt naturally. When the candidate asks for a moment to think, acknowledge it calmly and do not advance the interview. Linear actions are controlled by the application: a comment is posted only after the application reads a preview and receives explicit candidate confirmation. Never invent a Linear result.`;
+  const greeting = openingText ?? defaultGreeting;
+  const instructions = `You are the ${roleNames[activeRole]} voice executor for RoundTable's AI interview panel. The application-controlled custom LLM selects exactly one panel role and one question per turn. Speak its text faithfully, warmly, and concisely. Never claim to be human. Never make a hire or reject decision. Allow the candidate to interrupt naturally. When the candidate asks for a moment to think, acknowledge it calmly and do not advance the interview. Linear actions are controlled by the application: a comment is posted only after the application reads a preview and receives explicit candidate confirmation. Never invent a Linear result.`;
 
   const agent = new Agent({
     client,
@@ -150,14 +174,16 @@ export async function startInterviewAgent({
       model: 'roundtable-controller',
       systemMessages: [{ role: 'system', content: instructions }],
     }))
-    .withTts(new MiniMaxTTS({
-      model: 'speech_2_6_turbo',
-      voiceId: 'English_captivating_female1',
+    .withTts(new GradiumTTS({
+      apiKey: requireGradiumEnv('GRADIUM_API_KEY'),
+      modelName: 'default',
+      voiceId: gradiumVoiceForRole(activeRole),
+      sampleRate: 24_000,
     }));
 
   const session = agent.createSession({
     channel,
-    agentUid: String(DEFAULT_AGENT_UID),
+    agentUid,
     remoteUids: [rtcUid],
     idleTimeout: Math.max(60, durationMinutes * 60 + 30),
     expiresIn: ExpiresIn.hours(1),

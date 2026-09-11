@@ -33,6 +33,13 @@ export function isIncompleteDemoAnswer(answer: string, role: string): boolean {
   if (/^(?:please )?(?:skip(?: this(?: question)?)?|pass|continue(?: (?:now|please|for(?: the)? next panel(?: perspective)?))?|next(?: question)?|i (?:don't|do not) know)[.! ]*$/i.test(answer)
     || /\b(that['’]s (?:all|my answer)|i['’]m done)\W*$/i.test(answer)) return false;
   const words = answer.trim().split(/\s+/);
+  // Customer answers are naturally concise. A clear benefit statement should
+  // advance the demo instead of leaving the candidate in silence to guess that
+  // they must say "continue".
+  if (role === 'customer' && words.length >= 4
+    && /\b(faster|fewer|improved?|reduced?|saved?|easier|simple|latency|time|reliable|cost|benefit|workflow)\b/i.test(answer)) {
+    return false;
+  }
   if (words.length < 8 || /\b(that|was|is|the|a|an|to|and|but|because|with|my|took|were)\W*$/i.test(answer)) return true;
   // An introduction alone is not the requested project example.
   return role === 'hiring_manager'
@@ -85,10 +92,14 @@ export async function processDemoAnswer(input: {
     input.answer,
   ]).slice(0, 24_000);
   if (isIncompleteDemoAnswer(answer, session.activeRole)) {
-    // Silence lets a candidate finish a broken sentence without another voice
-    // competing with them. An introduction gets a focused project reminder.
-    return saveResponse(session.activeRole === 'hiring_manager' && answer.split(/\s+/).length >= 8
-      ? 'Thank you. Tell me about one project you personally worked on.' : '');
+    // Ask for a short completion instead of returning silence. Silence makes a
+    // live STT turn look lost, especially while the workspace is open.
+    const prompt = session.activeRole === 'hiring_manager' && answer.split(/\s+/).length >= 8
+      ? 'Thank you. Tell me about one project you personally worked on.'
+      : session.activeRole === 'customer'
+        ? 'Could you put that benefit in simple customer terms?'
+        : 'I caught part of that. Please finish your answer, or say continue when you are ready for the next perspective.';
+    return saveResponse(prompt);
   }
   // One accepted answer per question, even if two ASR requests race. The store's
   // compare-and-swap is the cross-process arbiter; the stable reservation key

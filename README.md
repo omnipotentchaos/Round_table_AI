@@ -1,6 +1,6 @@
 # RoundTable AI
 
-RoundTable is a backend-first, voice-native adaptive interview panel. One interruptible Agora Conversational AI agent speaks for several logical interviewers, while a deterministic controller chooses exactly one role and one objective per candidate turn.
+RoundTable is a backend-first, voice-native adaptive interview panel. A deterministic controller chooses exactly one role and one objective per candidate turn; each role uses its own short-lived Agora agent with a configured Gradium voice while the candidate remains in one RTC room.
 
 The MVP supports Technical, Product, Hiring Manager, Behavioural, and Customer perspectives; signed single-use invitations; shared durable context; dynamic follow-ups; difficulty adjustment; vague-answer and contradiction checks; Monaco and Excalidraw workspaces; session-scoped MCP tools; isolated E2B tests; and evidence-linked final assessments. It never emits an automatic hire/reject decision.
 
@@ -11,7 +11,7 @@ The code is derived from Agora's official `agent-quickstart-nextjs`, and the sou
 ## Architecture
 
 ```text
-Candidate browser <-- Agora RTC/RTM --> one managed voice agent
+Candidate browser <-- Agora RTC/RTM --> one active role voice agent
                                            |
                                  /api/ai/chat/completions
                                            |
@@ -50,6 +50,7 @@ Apply every migration in [supabase/migrations](supabase/migrations) in filename 
 
 - `NEXT_PUBLIC_AGORA_APP_ID`, `NEXT_AGORA_APP_CERTIFICATE`
 - `APP_BASE_URL`
+- `GRADIUM_API_KEY` plus `GRADIUM_HIRING_MANAGER_VOICE_ID`, `GRADIUM_TECHNICAL_VOICE_ID`, `GRADIUM_PRODUCT_VOICE_ID`, `GRADIUM_CUSTOMER_VOICE_ID`, and `GRADIUM_BEHAVIORAL_VOICE_ID`
 - `GROQ_API_KEY`, with optional `GROQ_EVALUATOR_MODEL`, `GROQ_SPEAKER_MODEL`, `GROQ_PLANNER_MODEL`, and `GROQ_ASSESSMENT_MODEL`
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`
 - `NEXT_PUBLIC_DEMO_MODE=true` (optional local testing mode; disables company email authentication and must not be enabled in production)

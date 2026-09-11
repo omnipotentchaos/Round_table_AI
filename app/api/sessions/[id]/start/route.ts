@@ -4,6 +4,7 @@ import { startInterviewAgent, stopInterviewAgent } from '@/lib/agora-server';
 import { apiError } from '@/lib/http';
 import { interviewStore } from '@/lib/interview-store';
 import { createOpaqueToken, hashToken } from '@/lib/security';
+import { agentUidForRole } from '@/lib/agora';
 
 export const maxDuration = 60;
 
@@ -54,6 +55,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         panelRoles: version.definition.panelRoles,
         durationMinutes: version.definition.durationMinutes,
         demoMode: version.definition.demoMode,
+        activeRole: session.activeRole,
+        agentUid: agentUidForRole(session.activeRole),
       });
       const fresh = (await interviewStore.getSession(id)) ?? session;
       if (fresh.status === 'completed' || fresh.status === 'failed') {
@@ -64,6 +67,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       // Do not use optimistic locking here to avoid race conditions with telemetry/connection events.
       const updated = await interviewStore.updateSession(id, {
         agoraAgentId: agentId,
+        agentUid: agentUidForRole(session.activeRole),
         status: 'in_progress',
         startedAt: fresh.startedAt || new Date().toISOString(),
         stateVersion: fresh.stateVersion + 1,

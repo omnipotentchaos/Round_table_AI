@@ -37,11 +37,9 @@ export function QuickstartConversationLayout({
 }: QuickstartConversationLayoutProps) {
   const requestedWorkspace = activeModality === 'code' || activeModality === 'canvas';
   const [minimized, setMinimized] = useState(false);
-  const [transcriptExpanded, setTranscriptExpanded] = useState(false);
   const [workspaceVisited, setWorkspaceVisited] = useState(requestedWorkspace);
   useEffect(() => {
     setMinimized(false);
-    setTranscriptExpanded(false);
     if (requestedWorkspace) setWorkspaceVisited(true);
   }, [activeModality, workspacePrompt, requestedWorkspace]);
   const focused = Boolean(sessionId && requestedWorkspace && !minimized);
@@ -88,17 +86,18 @@ export function QuickstartConversationLayout({
             <div className="mb-2 flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-400" />Voice interview continues</div>
             <p className="text-xs text-muted-foreground">Take your time. Your work autosaves; ask the panel to review it when you are ready.</p>
           </div>}
-          {focused && <button className="mb-2 w-full rounded border border-border p-2 text-xs" aria-expanded={transcriptExpanded} onClick={() => setTranscriptExpanded((value) => !value)}>{transcriptExpanded ? 'Collapse transcript' : 'Show transcript'}</button>}
-          <div className={`overflow-hidden transition-[max-height,opacity] duration-500 motion-reduce:transition-none ${focused && !transcriptExpanded ? 'max-h-0 opacity-0' : 'h-64 max-h-[70vh] opacity-100 lg:h-full'}`} inert={focused && !transcriptExpanded}>{transcriptPanel}</div>
+          <div className={`overflow-hidden transition-[max-height,opacity] duration-500 motion-reduce:transition-none ${focused ? 'h-64 max-h-[42vh] opacity-100 lg:h-full' : 'h-64 max-h-[70vh] opacity-100 lg:h-full'}`}>
+            {transcriptPanel}
+          </div>
         </aside>
 
         {/* Visualizer (and potentially small controls) */}
         <main className={`flex min-h-0 min-w-0 flex-col ${focused ? 'order-3 lg:col-start-1 lg:row-start-2' : 'order-1 lg:col-start-2 lg:row-span-2'}`}>
           <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[#272727] bg-[radial-gradient(circle_at_50%_45%,rgba(62,207,142,.055),transparent_34%),#111] px-4 pb-4 shadow-[0_24px_80px_rgba(0,0,0,.25)]">
-            <div className={`flex items-center justify-center overflow-hidden transition-[max-height,opacity] duration-500 motion-reduce:transition-none ${focused ? 'max-h-0 opacity-0' : 'min-h-0 max-h-[70vh] flex-1 opacity-100'}`}>
+            <div className={`flex items-center justify-center overflow-hidden transition-[max-height,opacity] duration-500 motion-reduce:transition-none ${focused ? 'min-h-[11rem] max-h-[12rem] shrink-0 opacity-100' : 'min-h-0 max-h-[70vh] flex-1 opacity-100'}`}>
               {visualizer}
             </div>
-            {!focused && <div className="mx-auto mb-1 hidden opacity-70 xl:block">{pipelineMetrics}</div>}
+            <div className={`mx-auto mb-1 opacity-70 ${focused ? 'block scale-90 origin-center' : 'hidden xl:block'}`}>{pipelineMetrics}</div>
             <div className="shrink-0 pt-3">{controls}</div>
           </div>
         </main>

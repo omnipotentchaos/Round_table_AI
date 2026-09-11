@@ -31,7 +31,7 @@ The sections below (Start Here, Patterns, Anti-Patterns, etc.) remain the canoni
 - UI components: `agora-agent-uikit` for visualizer, transcript, and mic controls
 - Server SDK: `agora-agents` for managed agent session startup
 - Product APIs: company interviews, signed invitations, sessions, artifacts, assessment release, MCP, and Agora webhooks live in `app/api`
-- Voice pipeline: Agora-managed STT/TTS with an authenticated RoundTable custom LLM/controller endpoint
+- Voice pipeline: Agora-managed STT with Gradium TTS and an authenticated RoundTable custom LLM/controller endpoint. One role agent speaks at a time; server-owned handoffs preserve the candidate RTC room.
 - Persistence and auth: Google-only Supabase Auth for interviewers, with one idempotently provisioned private organization per authenticated user; process-local memory is development/test fallback only
 - Submission auth bypass: `NEXT_PUBLIC_DISABLE_COMPANY_AUTH=true` deliberately exposes one fixed company organization while retaining Supabase persistence; it is temporary and must never be used with real candidate data.
 - Workspaces: Monaco code and one Excalidraw canvas with private checkpoints; server-selected E2B execution

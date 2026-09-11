@@ -1,6 +1,6 @@
 # Operations
 
-Deploy as one Next.js app on Vercel and one Supabase project. Set all variables from `env.local.example`; keep certificate, service key, signing secret, Groq key, E2B key, and webhook secret server-only. Set `APP_BASE_URL` to the public HTTPS origin so Agora can reach the custom LLM route.
+Deploy as one Next.js app on Vercel and one Supabase project. Set all variables from `env.local.example`; keep certificate, Gradium key/voice IDs, service key, signing secret, Groq key, E2B key, and webhook secret server-only. Set `APP_BASE_URL` to the public HTTPS origin so Agora can reach the custom LLM route. Configure one `GRADIUM_API_KEY` and all five role voice IDs in every runtime target; the live interview starts a new role agent for each server-selected handoff.
 
 On Vercel, `VERCEL_PROJECT_PRODUCTION_URL` (falling back to `VERCEL_URL`) takes precedence for Agora callbacks and invitation links. This prevents a local or expired tunnel copied through `APP_BASE_URL` from breaking production. Enable only Google in Supabase Authentication, configure its Google OAuth client, and allow the deployed `/company` plus `/company/analysis/**` application redirect URLs.
 
